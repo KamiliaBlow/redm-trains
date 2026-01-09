@@ -33,7 +33,9 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
     print('Created train by player', playerId, GetPlayerName(playerId), 'TrainId and NetId', trainId, netId)
     print('Client trains', json.encode(trainsClientInfo))
 
-    SetEntityOrphanMode(handle, 2) -- Prevent entity deletion
+    -- УБРАНО: SetEntityOrphanMode(handle, 2)
+    -- Мы убираем режим "сироты", чтобы игра могла корректно удалить поезд, если владелец упадет.
+    -- Скрипт сам позаботится о пересоздании поезда.
 
     Entity(handle).state:set('trainId', trainId, true)
 
@@ -47,16 +49,27 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
         local newOwner = lastOwner
 
         local previousCoords = GetEntityCoords(handle)
-        sendToDiscordDebugInfo(nil, ('Train **%s** spawned (%s)[%s]'):format(trainId, GetPlayerName(newOwner), newOwner))
-        sendToDiscordDebugInfo(nil, ('**[Request]** Trailers info from **%s** [Owner: %s]'):format(trainId, newOwner))
+        --sendToDiscordDebugInfo(nil, ('Train **%s** spawned (%s)[%s]'):format(trainId, GetPlayerName(newOwner), newOwner))
+        --sendToDiscordDebugInfo(nil, ('**[Request]** Trailers info from **%s** [Owner: %s]'):format(trainId, newOwner))
         TriggerClientEvent('trains:requestTrailersInfo', newOwner, NetworkGetNetworkIdFromEntity(handle))
         
         local prevAt = GetGameTimer()
         local trainMigrated = false
         local lastNormalCoords = previousCoords
+
+        -- Начинаем цикл мониторинга поезда
         while DoesEntityExist(handle) do
             newOwner = NetworkGetEntityOwner(handle)
             local coords = GetEntityCoords(handle)
+
+            -- НОВАЯ ПРОВЕРКА: Если владелец поезда не существует (отключился), удаляем поезд принудительно
+            if not DoesPlayerExist(newOwner) then
+                --print(string.format('Train owner %s disconnected. Force deleting train %s to allow respawn.', newOwner, trainId))
+                --sendToDiscordDebugInfo(nil, string.format('Train **%s** owner disconnected. Force deleting.', trainId))
+                DeleteEntity(handle)
+                trainMigrated = true -- Помечаем, что нужно пересоздать
+                break -- Прерываем цикл
+            end
 
             if GetGameTimer() - prevAt > 1000 then
                 TriggerClientEvent('rsg-trains:client:trackswithches', newOwner, trainId, netId, 1000)
@@ -67,27 +80,18 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
 
             -- Possibly not needed (with in-game train migration to other player - we avoid manual recreation)
             if lastOwner ~= newOwner then
-                sendToDiscordDebugInfo(nil, ('Train **%s** changed owner from (%s)**[%s]** to (%s)**[%s]**\n\nLast owner **[%s]** at %s\nNew owner **[%s]** at %s'):format(
-                    trainId, 
-                    GetPlayerName(lastOwner), 
-                    lastOwner, 
-                    GetPlayerName(newOwner), 
-                    newOwner,
-                    lastOwner, GetEntityCoords(GetPlayerPed(lastOwner)),
-                    newOwner, GetEntityCoords(GetPlayerPed(newOwner))
-                ))
+                -- sendToDiscordDebugInfo(nil, ('Train **%s** changed owner from (%s)**[%s]** to (%s)**[%s]**\n\nLast owner **[%s]** at %s\nNew owner **[%s]** at %s'):format(
+                    -- trainId, 
+                    -- GetPlayerName(lastOwner), 
+                    -- lastOwner, 
+                    -- GetPlayerName(newOwner), 
+                    -- newOwner,
+                    -- lastOwner, GetEntityCoords(GetPlayerPed(lastOwner)),
+                    -- newOwner, GetEntityCoords(GetPlayerPed(newOwner))
+                -- ))
 
-                -- print('Owner changed:', trainId, 'Last owner', lastOwner, GetPlayerName(lastOwner), 'New owner', newOwner, GetPlayerName(newOwner))
-                -- local previousOwnerCoords = GetEntityCoords(GetPlayerPed(lastOwner))
-                -- local newOwnerCoords = GetEntityCoords(GetPlayerPed(newOwner))
-                -- local prevOwnerToTrainDist = #(previousCoords.xy - previousOwnerCoords.xy)
-                -- local newOwnerToTrainDist = #(previousCoords.xy - newOwnerCoords.xy)
-                -- print('1) Dist between last owner and train:', prevOwnerToTrainDist)
-                -- print('2) Dist between new owner and train:', newOwnerToTrainDist)
-                -- print('3) Dist between owners:', #(previousOwnerCoords.xy - newOwnerCoords.xy))
-                -- print('- Manualy delete train (1):')
-                -- DeleteEntity(handle)
-                -- trainMigrated = true
+                -- Примечание: Мы не удаляем поезд здесь, если новый владелец валиден.
+                -- Игра может мигрировать поезд сама, если игроки рядом.
             end
             
             local dist = #(previousCoords - coords)
@@ -105,7 +109,7 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
             if GetPlayerRoutingBucket(lastOwner) ~= Config.RoutingBucket then
                 print(('- Train owner quit from Routing Bucket #%s'):format(Config.RoutingBucket))
                 local msg = ('Train **%s** owner (%s)[%s] quit from Routing Bucket #%s'):format(trainId, GetPlayerName(lastOwner), lastOwner, Config.RoutingBucket)
-                sendToDiscordDebugInfo(nil, msg)
+                --sendToDiscordDebugInfo(nil, msg)
                 DeleteEntity(handle)
                 trainMigrated = true
             end
@@ -113,6 +117,15 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
             lastNormalCoords = previousCoords
             previousCoords = coords
             lastOwner = newOwner
+
+			-- ДОБАВЬТЕ ЭТО: Сохраняем координаты в конфиг для надежности
+            for k, v in ipairs(Config.TrainSetup) do
+                if v.trainid == trainId then
+                    v.lastCoords = lastNormalCoords
+                    v.direction = trainConfig and trainConfig.direction or 0 -- Если отслеживаете направление
+                    break
+                end
+            end
 
             if trainMigrated then
                 break
@@ -130,6 +143,9 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
                 print('- Waiting for train deletion')
                 Wait(0)
             end
+            
+            -- Важно: удаляем запись о поезде, чтобы новый мог создаться без конфликтов
+            Trains[trainId] = nil
 
             if DoesPlayerExist(newOwner) and GetPlayerRoutingBucket(newOwner) == Config.RoutingBucket then
                 -- Recreated train on new owner 
@@ -167,6 +183,9 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
                 end
             end
             trainConfig.lastCoords = lastNormalCoords
+            
+            -- Очищаем ID, чтобы не было конфликтов при возврате игрока
+            Trains[trainId] = nil
 
             while playerId == nil do
                 playerId = getSomePlayer()
@@ -196,7 +215,7 @@ AddEventHandler('entityRemoved', function(handle)
     local entityOwner = NetworkGetEntityOwner(handle)
     print('[x] entityRemoved: ', trainId, netId, '[x] entityOwner: ', trainId, entityOwner, GetPlayerName(entityOwner))
     Trains[trainId] = nil
-    sendToDiscordDebugInfo(nil, ('Train **%s** de-spawned (%s)[%s]'):format(trainId, GetPlayerName(entityOwner), entityOwner))
+    --sendToDiscordDebugInfo(nil, ('Train **%s** de-spawned (%s)[%s]'):format(trainId, GetPlayerName(entityOwner), entityOwner))
 
     local firstEntityOwner = NetworkGetFirstEntityOwner(handle)
     if entityOwner ~= firstEntityOwner then
@@ -330,12 +349,13 @@ function waitForPlayersThenSpawnTrains()
 
         -- Simulate trains movement
         for k,v in ipairs(Config.TrainSetup) do
-            local trainId = v.trainid
-            if not v.lastCoords then
-                v.lastCoords = v.startcoords
-            end
-            v.lastCoords, v.direction = simulationTick(trainId, v.lastCoords, v.direction)
-        end
+			local trainId = v.trainid
+			if not v.lastCoords then
+				v.lastCoords = v.startcoords
+			end
+			-- simulationTick возвращает НОВЫЕ координаты и сохраняет их в v.lastCoords
+			v.lastCoords, v.direction = simulationTick(trainId, v.lastCoords, v.direction)
+		end
 
         Wait(200)
     end
@@ -435,7 +455,7 @@ CreateThread(function()
             })
         end
 
-        Wait(5000)
+        Wait(500)
     end
 end)
 
@@ -446,7 +466,7 @@ RegisterCommand('delveh', function()
 end)
 
 RegisterNetEvent('trains:trainStopped', function(trainName, stopName)
-    sendToDiscord(nil, ('**%s** stopped at **%s** (R)'):format(trainName, stopName))
+    sendToDiscord(nil, ('**%s** совершил остановку на **%s** (R)'):format(trainName, stopName))
 end)
 
 
@@ -457,6 +477,7 @@ AddEventHandler('onResourceStop', function(name)
             if DoesEntityExist(handle) then
                 DeleteEntity(handle)
                 print('Delete train', train1)
+				print('Delete train', train2)
             end
         end
     end
@@ -494,7 +515,7 @@ RegisterNetEvent('trains:onRequestedTrailersInfo', function(netId, trailersAmoun
         return
     end
 
-    sendToDiscordDebugInfo(nil, ('**[Response]** Train **%s** has **%s** trailers [Owner: %s]'):format(trainId, trailersAmount, playerId))
+    --sendToDiscordDebugInfo(nil, ('**[Response]** Train **%s** has **%s** trailers [Owner: %s]'):format(trainId, trailersAmount, playerId))
 end)
 
 -- RegisterCommand('req', function()

@@ -1,4 +1,4 @@
-local webhook = 'https://discord.com/api/webhooks/1165775161895690332/em94kr9TQTS41ufhrblIj3pNb01_Xdm7GoOCn9KkCnMvOJCC0JPAvlDfWJOaVqImiDQn'
+local webhook = 'URL_HERE'
 function sendToDiscordDebugInfo(name, message)
     local footer = 'Date: '.. os.date("%Y-%m-%d %H:%M:%S")
     local embed = {
@@ -14,7 +14,7 @@ function sendToDiscordDebugInfo(name, message)
     PerformHttpRequest(webhook, function(err, text, headers) end, 'POST', json.encode({username = name, embeds = embed}), { ['Content-Type'] = 'application/json' })
 end
 
-local webhook2 = 'https://discord.com/api/webhooks/1167180021979426896/bWinG18OKDDcb6RFlnhWEHNlliPCENrKLA3y5JprvgISIpYc160NdgtrDZNVbSfxqNAY'
+local webhook2 = 'URL_HERE'
 function sendToDiscord(name, message)
     local footer = 'Date: '.. os.date("%Y-%m-%d %H:%M:%S")
     local embed = {

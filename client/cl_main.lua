@@ -15,7 +15,7 @@ local function SpawnTrain(trainhash, startcoords, direction)
     end
 
     local direction = direction or 0 
-    local train = Citizen.InvokeNative(0xc239dbd9a57d2a71, trainhash, startcoords, direction, 0, 1, 0)
+    local train = Citizen.InvokeNative(0xc239dbd9a57d2a71, trainhash, startcoords, direction, 1, 1, 0)
 
     -- my checj
     print('train creation', train)
@@ -102,6 +102,11 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
         if direction == nil then
             direction = trainStop.direction or 0
         end
+    elseif trainId == 'train2' then
+        local index, trainStop = getClosestStop(Config.RouteTwoTrainStops, startCoords)
+        if direction == nil then
+            direction = trainStop.direction or 0
+        end
     end
     
     print("Created train", trainId)
@@ -160,6 +165,17 @@ RegisterNetEvent('rsg-trains:client:trackswithches', function(trainId, netId, ms
                     Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
                 end
             end
+		elseif train ~= nil and route == 'trainRouteTwo' then
+			-- set track switching
+            for i = 1, #Config.RouteTwoTrainSwitches do
+                local coords = GetEntityCoords(train)
+                local traincoords = vector3(coords.x, coords.y, coords.z)
+                local switchdist = #(Config.RouteTwoTrainSwitches[i].coords - traincoords)
+                if switchdist < 15 then
+                    Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
+                    Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
+                end
+            end
         end
     end
 
@@ -189,6 +205,8 @@ RegisterNetEvent('rsg-trains:client:startroute', function(trainId, netId, ms)
     local trainStops = {}
     if route == 'trainRouteOne' then
         trainStops = Config.RouteOneTrainStops
+    elseif route == 'trainRouteTwo' then
+        trainStops = Config.RouteTwoTrainStops
     end
 
     -- Closeset stop
