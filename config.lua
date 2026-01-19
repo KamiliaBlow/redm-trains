@@ -22,6 +22,7 @@ Config.TrainSetup = {
         trainStopped = nil, -- used as state variable on client side
         lastCoords = nil, -- used as state variable on server side
         direction = nil, -- used as state variable on server side
+        currentPointIndex = 1,
     },
     {
         trainname = 'West Express',
@@ -34,7 +35,8 @@ Config.TrainSetup = {
         fullspeed = 15.0,
         trainStopped = nil, -- used as state variable on client side
         lastCoords = nil, -- used as state variable on server side
-		direction = nil, -- used as state variable on server side
+        direction = nil, -- used as state variable on server side
+        currentPointIndex = 1,
     },
 }
 

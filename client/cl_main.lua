@@ -17,27 +17,32 @@ local function SpawnTrain(trainhash, startcoords, direction)
     local direction = direction or 0 
     local train = Citizen.InvokeNative(0xc239dbd9a57d2a71, trainhash, startcoords, direction, 1, 1, 0)
 
-    -- my checj
-    print('train creation', train)
+    -- my check (OPTIMIZATION: Убраны print'ы из цикла Wait, чтобы не спамить консоль)
+    -- print('train creation', train)
+    local timeout = GetGameTimer() + 5000
     while not DoesEntityExist(train) do
         Wait(0)
-        print('wait creation', train, trainhash)
+        if GetGameTimer() > timeout then
+            print("Error: Train creation timeout")
+            return 0
+        end
+        -- print('wait creation', train, trainhash)
     end
     local netId = VehToNet(train)
     while not NetworkDoesNetworkIdExist(netId) do
         Wait(0)
-        print('wait network', netId, trainhash)
         netId = VehToNet(train)
+        if GetGameTimer() > timeout then print("Error: NetID timeout"); return 0 end
+        -- print('wait network', netId, trainhash)
     end
     ----
 
     SetTrainSpeed(train, 0.0)
-    SetTrainMaxSpeed(train, 30.0) -- 108 km/h
+    SetTrainMaxSpeed(train, 30.0) 
 
     Citizen.InvokeNative(0x05254BA0B44ADC16, train, false)
-    Citizen.InvokeNative(0x06FAACD625D80CAA, train) -- NetworkRegisterEntityAsNetworked
+    Citizen.InvokeNative(0x06FAACD625D80CAA, train) 
     SetModelAsNoLongerNeeded(train)
-
 
     table.insert(createdTrains, {
         trainModel = trainhash,
@@ -75,6 +80,7 @@ end
 
 
 RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
+    -- НАЧАЛО ИСПРАВЛЕНИЯ
     local found = false
     for k, v in ipairs(Config.TrainSetup) do
         if v.trainid == trainId then
@@ -82,14 +88,15 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
             break
         end
     end
+    
     if not found then
         print('Failed: Train with id not found', trainId)
         return
     end
+    -- КОНЕЦ ИСПРАВЛЕНИЯ
 
     -- Reset state
     found.trainStopped = nil
-
 
     local startCoords = found.startcoords
     if coords then
@@ -111,17 +118,15 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
     
     print("Created train", trainId)
     local trainHandle = SpawnTrain(found.trainhash, startCoords, direction)
-    Citizen.InvokeNative(0xBA8818212633500A, trainHandle, 0, 1) -- SetTransportConfigFlag TCF_NotConsideredForEntryByLocalPlayer
-    local netId = NetworkGetNetworkIdFromEntity(trainHandle)
-    while not NetworkDoesNetworkIdExist(netId) do
-        print('Waiting for net', netId)
-        Wait(0)
+    
+    if trainHandle == 0 then
+        print("Failed to spawn train entity")
+        return
     end
 
-    --todo: test
-    --Citizen.InvokeNative(0x7182EDDA1EE7DB5A, netId) -- PreventNetworkIdMigration
-
-    -- debug info
+    Citizen.InvokeNative(0xBA8818212633500A, trainHandle, 0, 1) -- SetTransportConfigFlag
+    local netId = NetworkGetNetworkIdFromEntity(trainHandle)
+    
     local trainsInfo = {}
     for kk,vv in ipairs(_getTrains()) do
         table.insert(trainsInfo, {
@@ -129,8 +134,6 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
             trainId = Entity(vv).state['trainId'],
         })
     end
-    -------------
-    
     TriggerServerEvent("Trains.Created", found.trainid, netId, trainsInfo)
 end)
 
@@ -151,26 +154,21 @@ RegisterNetEvent('rsg-trains:client:trackswithches', function(trainId, netId, ms
 
     local stopAt = GetGameTimer() + ms
     while GetGameTimer() < stopAt do
-        Wait(0)
+        Wait(100) -- OPTIMIZATION: БЫЛО 0. Стрелки не переключаются мгновенно, 100мс норм.
 
-        -- valentine route
         if train ~= nil and route == 'trainRouteOne' then
-            -- set track switching
             for i = 1, #Config.RouteOneTrainSwitches do
                 local coords = GetEntityCoords(train)
-                local traincoords = vector3(coords.x, coords.y, coords.z)
-                local switchdist = #(Config.RouteOneTrainSwitches[i].coords - traincoords)
+                local switchdist = #(Config.RouteOneTrainSwitches[i].coords - coords)
                 if switchdist < 15 then
                     Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
                     Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
                 end
             end
-		elseif train ~= nil and route == 'trainRouteTwo' then
-			-- set track switching
+        elseif train ~= nil and route == 'trainRouteTwo' then
             for i = 1, #Config.RouteTwoTrainSwitches do
                 local coords = GetEntityCoords(train)
-                local traincoords = vector3(coords.x, coords.y, coords.z)
-                local switchdist = #(Config.RouteTwoTrainSwitches[i].coords - traincoords)
+                local switchdist = #(Config.RouteTwoTrainSwitches[i].coords - coords)
                 if switchdist < 15 then
                     Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
                     Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
@@ -178,7 +176,6 @@ RegisterNetEvent('rsg-trains:client:trackswithches', function(trainId, netId, ms
             end
         end
     end
-
 end)
 
 -------------------------------------------------------------------------------
@@ -187,7 +184,6 @@ end)
 RegisterNetEvent('rsg-trains:client:startroute', function(trainId, netId, ms)
     local train = NetworkGetEntityFromNetworkId(netId)
 
-    -- Get train config by trainId
     local trainConfig = nil
     for k,v in ipairs(Config.TrainSetup) do
         if v.trainid == trainId then
@@ -195,13 +191,13 @@ RegisterNetEvent('rsg-trains:client:startroute', function(trainId, netId, ms)
             break
         end
     end
+    if not trainConfig then return end
+    
     local route = trainConfig.route
-    local trainname = trainConfig.trainname
     local stopspeed = trainConfig.stopspeed
     local cruisespeed = trainConfig.cruisespeed
     local fullspeed = trainConfig.fullspeed
 
-    -- Train route
     local trainStops = {}
     if route == 'trainRouteOne' then
         trainStops = Config.RouteOneTrainStops
@@ -209,38 +205,47 @@ RegisterNetEvent('rsg-trains:client:startroute', function(trainId, netId, ms)
         trainStops = Config.RouteTwoTrainStops
     end
 
-    -- Closeset stop
     local coords = GetEntityCoords(train)
     local index, trainStop = getClosestStop(trainStops, coords)
-
-    -- Handle speed near stop
     local distance = #(coords - trainStop.coords)
 
-    -- Train soo will be near next stop
-    if distance < trainStop.dst then
+    -- OPTIMIZATION: Этот цикл обрабатывает логику скорости.
+    -- Wait(0) -> Wait(200). Поезд разгоняется и тормозит плавно, дергать скорость 60 раз в секунду не надо.
+    local stopAt = GetGameTimer() + ms
+    while GetGameTimer() < stopAt do
+        Wait(200)
+        if not DoesEntityExist(train) then break end
 
-        -- Train at stop
-        if distance < trainStop.dst2 then
-            if not trainConfig.trainStopped then
-                SetTrainCruiseSpeed(train, stopspeed)
-                -- Config.printdebug(trainname.. ' stopped at '..trainStop.name)
-                TriggerServerEvent('trains:trainStopped', trainname, trainStop.name)
-
-                SetTimeout(trainStop.waittime, function()
-                    -- Config.printdebug(trainname.. ' is leaving '..trainStop.name)
-                    SetTrainCruiseSpeed(train, cruisespeed)
-                    Wait(10000)
-                    trainConfig.trainStopped = false
-                end)
-                trainConfig.trainStopped = true
-            end
-        else
-            SetTrainCruiseSpeed(train, cruisespeed)
+        coords = GetEntityCoords(train)
+        -- Опять ищем ближайшую остановку (можно оптимизировать, но здесь нагрузка меньше чем в симуляции сервера)
+        index, trainStop = getClosestStop(trainStops, coords)
+        
+        if not trainStop then 
+            SetTrainCruiseSpeed(train, fullspeed)
+            goto continue 
         end
 
-    -- Train is between stops - freeway (fullspeed)
-    elseif distance > trainStop.dst then
-        SetTrainCruiseSpeed(train, fullspeed)
+        distance = #(coords - trainStop.coords)
+
+        if distance < trainStop.dst then
+            if distance < trainStop.dst2 then
+                if not trainConfig.trainStopped then
+                    SetTrainCruiseSpeed(train, stopspeed)
+                    TriggerServerEvent('trains:trainStopped', trainConfig.trainname, trainStop.name)
+                    SetTimeout(trainStop.waittime, function()
+                        SetTrainCruiseSpeed(train, cruisespeed)
+                        Wait(10000)
+                        trainConfig.trainStopped = false
+                    end)
+                    trainConfig.trainStopped = true
+                end
+            else
+                SetTrainCruiseSpeed(train, cruisespeed)
+            end
+        elseif distance > trainStop.dst then
+            SetTrainCruiseSpeed(train, fullspeed)
+        end
+        ::continue::
     end
 end)
 
