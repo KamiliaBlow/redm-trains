@@ -17,8 +17,6 @@ local function SpawnTrain(trainhash, startcoords, direction)
     local direction = direction or 0 
     local train = Citizen.InvokeNative(0xc239dbd9a57d2a71, trainhash, startcoords, direction, 1, 1, 0)
 
-    -- my check (OPTIMIZATION: Убраны print'ы из цикла Wait, чтобы не спамить консоль)
-    -- print('train creation', train)
     local timeout = GetGameTimer() + 5000
     while not DoesEntityExist(train) do
         Wait(0)
@@ -26,16 +24,13 @@ local function SpawnTrain(trainhash, startcoords, direction)
             print("Error: Train creation timeout")
             return 0
         end
-        -- print('wait creation', train, trainhash)
     end
     local netId = VehToNet(train)
     while not NetworkDoesNetworkIdExist(netId) do
         Wait(0)
         netId = VehToNet(train)
         if GetGameTimer() > timeout then print("Error: NetID timeout"); return 0 end
-        -- print('wait network', netId, trainhash)
     end
-    ----
 
     SetTrainSpeed(train, 0.0)
     SetTrainMaxSpeed(train, 30.0) 
@@ -62,25 +57,25 @@ local Trains = {}
 function _getTrains()
     local trains = {}
     local handle, train = FindFirstVehicle()
-    if IsThisModelATrain(GetEntityModel(train)) then
-        table.insert(trains, train)
-    end
-
-    local isExist, train = FindNextVehicle(handle)
-    while isExist do
+    if handle and train ~= 0 then
         if IsThisModelATrain(GetEntityModel(train)) then
             table.insert(trains, train)
         end
-        isExist, train = FindNextVehicle(handle)
-    end
-    EndFindVehicle(handle)
 
+        local isExist, nextTrain = FindNextVehicle(handle)
+        while isExist do
+            if IsThisModelATrain(GetEntityModel(nextTrain)) then
+                table.insert(trains, nextTrain)
+            end
+            isExist, nextTrain = FindNextVehicle(handle)
+        end
+        EndFindVehicle(handle)
+    end
     return trains
 end
 
 
 RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
-    -- НАЧАЛО ИСПРАВЛЕНИЯ
     local found = false
     for k, v in ipairs(Config.TrainSetup) do
         if v.trainid == trainId then
@@ -93,9 +88,7 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
         print('Failed: Train with id not found', trainId)
         return
     end
-    -- КОНЕЦ ИСПРАВЛЕНИЯ
 
-    -- Reset state
     found.trainStopped = nil
 
     local startCoords = found.startcoords
@@ -103,7 +96,6 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
         startCoords = coords
     end
 
-    -- TODO: Get route by trainId or routeId
     if trainId == 'train1' then
         local index, trainStop = getClosestStop(Config.RouteOneTrainStops, startCoords)
         if direction == nil then
@@ -154,9 +146,9 @@ RegisterNetEvent('rsg-trains:client:trackswithches', function(trainId, netId, ms
 
     local stopAt = GetGameTimer() + ms
     while GetGameTimer() < stopAt do
-        Wait(100) -- OPTIMIZATION: БЫЛО 0. Стрелки не переключаются мгновенно, 100мс норм.
+        Wait(100) 
 
-        if train ~= nil and route == 'trainRouteOne' then
+        if train ~= nil and DoesEntityExist(train) and route == 'trainRouteOne' then
             for i = 1, #Config.RouteOneTrainSwitches do
                 local coords = GetEntityCoords(train)
                 local switchdist = #(Config.RouteOneTrainSwitches[i].coords - coords)
@@ -165,7 +157,7 @@ RegisterNetEvent('rsg-trains:client:trackswithches', function(trainId, netId, ms
                     Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
                 end
             end
-        elseif train ~= nil and route == 'trainRouteTwo' then
+        elseif train ~= nil and DoesEntityExist(train) and route == 'trainRouteTwo' then
             for i = 1, #Config.RouteTwoTrainSwitches do
                 local coords = GetEntityCoords(train)
                 local switchdist = #(Config.RouteTwoTrainSwitches[i].coords - coords)
@@ -209,15 +201,12 @@ RegisterNetEvent('rsg-trains:client:startroute', function(trainId, netId, ms)
     local index, trainStop = getClosestStop(trainStops, coords)
     local distance = #(coords - trainStop.coords)
 
-    -- OPTIMIZATION: Этот цикл обрабатывает логику скорости.
-    -- Wait(0) -> Wait(200). Поезд разгоняется и тормозит плавно, дергать скорость 60 раз в секунду не надо.
     local stopAt = GetGameTimer() + ms
     while GetGameTimer() < stopAt do
         Wait(200)
         if not DoesEntityExist(train) then break end
 
         coords = GetEntityCoords(train)
-        -- Опять ищем ближайшую остановку (можно оптимизировать, но здесь нагрузка меньше чем в симуляции сервера)
         index, trainStop = getClosestStop(trainStops, coords)
         
         if not trainStop then 
@@ -250,49 +239,73 @@ RegisterNetEvent('rsg-trains:client:startroute', function(trainId, netId, ms)
 end)
 
 -------------------------------------------------------------------------------
--- setup train blips
+-- setup train blips (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 -------------------------------------------------------------------------------
+
+function addBlipToTrain(blipType, train, blipText)
+    local blip = Citizen.InvokeNative(0x23f74c2fda6e7c61, blipType, train) 
+    Citizen.InvokeNative(0x9CB1A1623062F402, blip, blipText) 
+    return blip
+end
+
 function trainChecker(train)
+    if not DoesEntityExist(train) then return end
+
+    -- Проверка 1: Это вообще поезд?
     if IsThisModelATrain(GetEntityModel(train)) then
-        local trainTrailerNumber = Citizen.InvokeNative(0x60B7D1DCC312697D, train)
-        local isTrainIsReal = GetTrainCarriage(train,trainTrailerNumber-1)
-        if isTrainIsReal ~= 0 then
-            if not Citizen.InvokeNative(0x9FA00E2FC134A9D0, train) then
-                print("train blip created")
-            else
-                RemoveBlip(GetBlipFromEntity(train))
-                print("train blip updated")
+        
+        -- ИСПРАВЛЕНИЕ ДУБЛИРОВАНИЯ БЛИПОВ:
+        -- Сервер устанавливает 'trainId' только на ГЛАВНЫЙ локомотив.
+        -- У обычных вагонов (которые FindNextVehicle тоже находит) этот ID отсутствует.
+        local trainId = Entity(train).state['trainId']
+
+        -- Если trainId отсутствует, значит это просто один из вагонов, а не голова поезда.
+        -- Пропускаем его, чтобы не создавать лишний блип.
+        if not trainId then 
+            return 
+        end
+
+        -- Проверка 2: Есть ли уже блип на этом локомотиве?
+        local blip = GetBlipFromEntity(train)
+        
+        if not DoesBlipExist(blip) then
+            local trainName = trainId
+
+            -- Пытаемся найти красивое имя в конфиге
+            for k,v in ipairs(Config.TrainSetup) do
+                if v.trainid == trainId then
+                    trainName = v.trainname or trainId
+                    break
+                end
             end
 
-            local createdBlip = addBlipToTrain(-399496385, train, Entity(train).state['trainId'] or 'None')
+            addBlipToTrain(-399496385, train, trainName)
+            -- print("Blip created for locomotive: " .. trainName)
         end
     end
 end
 
-function addBlipToTrain(blipType,train,blipText)
-    local blip = Citizen.InvokeNative(0x23f74c2fda6e7c61, blipType, train)
-    Citizen.InvokeNative(0x9CB1A1623062F402, blip, blipText)
-    return blip
-end
-
 function getTrains()
     local handle, firstVehicle = FindFirstVehicle()
-    trainChecker(firstVehicle)
-    local isExist, nextVeh = FindNextVehicle(handle)
-    while isExist do
-        trainChecker(nextVeh)
-        isExist, nextVeh = FindNextVehicle(handle)
+    if firstVehicle ~= 0 then
+        trainChecker(firstVehicle)
+        local isExist, nextVeh = FindNextVehicle(handle)
+        while isExist do
+            trainChecker(nextVeh)
+            isExist, nextVeh = FindNextVehicle(handle)
+        end
+        EndFindVehicle(handle)
     end
-    EndFindVehicle(handle)
 end
 
--- client blips
--- Citizen.CreateThread(function()
---     while true do
---         getTrains()
---         Wait(1000)
---     end
--- end)
+-- ИСПРАВЛЕНИЕ: Раскомментировали цикл проверки поездов
+-- Теперь каждый клиент сканирует поезда вокруг и создает блики
+Citizen.CreateThread(function()
+    while true do
+        getTrains()
+        Wait(2000) -- Проверяем каждые 2 секунды
+    end
+end)
 -------------------------------------------------------------------------------
 
 
@@ -307,12 +320,15 @@ AddEventHandler('onResourceStop', function(name)
             local trainHandle = NetworkGetEntityFromNetworkId(trainNetId)
 
             local trailers = {}
-            for i = 0, trainWagons - 1 do
-                local carriage = GetTrainCarriage(trainHandle, i)
-                if DoesEntityExist(carriage) then
-                    table.insert(trailers, carriage)
+            if DoesEntityExist(trainHandle) then
+                for i = 0, trainWagons - 1 do
+                    local carriage = GetTrainCarriage(trainHandle, i)
+                    if DoesEntityExist(carriage) then
+                        table.insert(trailers, carriage)
+                    end
                 end
             end
+            
             for k,v in ipairs(trailers) do
                 DeleteEntity(v)
             end
@@ -337,13 +353,16 @@ TriggerServerEvent('train:clientStarted')
 --- debug tools
 local blips = {}
 RegisterNetEvent('train:updateBlips', function(data)
+    -- Очистка старых бликов, созданных через это событие (например, для игроков)
+    -- Мы НЕ удаляем блики поездов здесь, так как теперь они управляются через trainChecker
     for k,v in ipairs(blips) do
-        if v ~= 0 and v ~= false then
+        if v ~= 0 and v ~= false and DoesBlipExist(v) then
             RemoveBlip(v)
         end
     end
     blips = {}
 
+    -- Создание бликов для игроков (если нужно для дебага)
     for k,v in ipairs(data.players) do
         local playerCoords = v.playerCoords
         local playerName = v.playerName
@@ -358,6 +377,11 @@ RegisterNetEvent('train:updateBlips', function(data)
         table.insert(blips, blip2)
     end
 
+    -- ИСПРАВЛЕНИЕ: Закомментировали создание бликов поездов через серверные координаты.
+    -- Теперь блики поездов создаются только на стороне клиента прикрепленные к entity (см. trainChecker),
+    -- что устраняет мерцание и исчезновение при реконнекте.
+    
+    --[[
     for k,v in ipairs(data.trains) do
         local trainId = v.trainId
         local trainCoords = v.trainCoords
@@ -373,7 +397,9 @@ RegisterNetEvent('train:updateBlips', function(data)
         end
         table.insert(blips, blip)
     end
+    ]]
 end)
+
 AddEventHandler('onResourceStop', function(name)
     if name == GetCurrentResourceName() then
         for k,v in ipairs(blips) do
@@ -405,14 +431,3 @@ RegisterNetEvent('trains:requestTrailersInfo', function(trainNetId)
     local trainTrailerNumber = Citizen.InvokeNative(0x60B7D1DCC312697D, train)
     TriggerServerEvent('trains:onRequestedTrailersInfo', trainNetId, trainTrailerNumber)
 end)
-
--- RegisterCommand('trailers', function()
---     local trains = _getTrains()
---     local train = trains[1]
---     print('Train:', train)
---     local trainTrailerNumber = Citizen.InvokeNative(0x60B7D1DCC312697D, train)
---     print('Train trailer number', trainTrailerNumber)
---     print('Trailer entity (0):', GetTrainCarriage(train, 0)) -- train itself
---     local n = trainTrailerNumber - 1 -- last trailer
---     print(('Trailer entity (%s):'):format(n), GetTrainCarriage(train, n))
--- end)
