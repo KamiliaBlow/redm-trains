@@ -130,44 +130,65 @@ RegisterNetEvent('trains:createTrain', function(trainId, coords, direction)
 end)
 
 -------------------------------------------------------------------------------
--- train track switching system
+-- train track switching system (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 -------------------------------------------------------------------------------
+
+-- Таблица для отслеживания активных потоков, чтобы не создавать дубликаты
+local activeSwitchThreads = {}
+
 RegisterNetEvent('rsg-trains:client:trackswithches', function(trainId, netId, ms)
-    local train = NetworkGetEntityFromNetworkId(netId)
-    local route = nil
-    local trainname = nil
-    for k,v in ipairs(Config.TrainSetup) do
-        if v.trainid == trainId then
-            route = v.route
-            trainname = v.trainname
-            break
-        end
-    end
+    -- Если поток для этого поезда уже работает, пропускаем, чтобы не плодить циклы
+    if activeSwitchThreads[netId] then return end
+    
+    activeSwitchThreads[netId] = true -- Помечаем, что поток активен
 
-    local stopAt = GetGameTimer() + ms
-    while GetGameTimer() < stopAt do
-        Wait(100) 
-
-        if train ~= nil and DoesEntityExist(train) and route == 'trainRouteOne' then
-            for i = 1, #Config.RouteOneTrainSwitches do
-                local coords = GetEntityCoords(train)
-                local switchdist = #(Config.RouteOneTrainSwitches[i].coords - coords)
-                if switchdist < 15 then
-                    Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
-                    Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
-                end
-            end
-        elseif train ~= nil and DoesEntityExist(train) and route == 'trainRouteTwo' then
-            for i = 1, #Config.RouteTwoTrainSwitches do
-                local coords = GetEntityCoords(train)
-                local switchdist = #(Config.RouteTwoTrainSwitches[i].coords - coords)
-                if switchdist < 15 then
-                    Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
-                    Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
-                end
+    CreateThread(function()
+        local train = NetworkGetEntityFromNetworkId(netId)
+        local route = nil
+        
+        -- Находим конфигурацию маршрута
+        for k,v in ipairs(Config.TrainSetup) do
+            if v.trainid == trainId then
+                route = v.route
+                break
             end
         end
-    end
+        
+        -- ИСПРАВЛЕНИЕ: Бесконечный цикл пока поезд существует.
+        -- Это гарантирует, что переключатели будут выставлены правильно сразу после появления поезда,
+        -- даже если он заспавнился прямо в середине петли.
+        while DoesEntityExist(train) do
+            Wait(100)
+
+            if route == 'trainRouteOne' then
+                for i = 1, #Config.RouteOneTrainSwitches do
+                    local coords = GetEntityCoords(train)
+                    local switchdist = #(Config.RouteOneTrainSwitches[i].coords - coords)
+                    
+                    -- ИСПРАВЛЕНИЕ: Увеличили радиус с 15 до 50 метров.
+                    -- Это позволяет поймать точку даже при небольшом расхождении координат спавна.
+                    if switchdist < 50 then
+                        Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
+                        Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteOneTrainSwitches[i].trainTrack, Config.RouteOneTrainSwitches[i].junctionIndex, Config.RouteOneTrainSwitches[i].enabled)
+                    end
+                end
+            elseif route == 'trainRouteTwo' then
+                for i = 1, #Config.RouteTwoTrainSwitches do
+                    local coords = GetEntityCoords(train)
+                    local switchdist = #(Config.RouteTwoTrainSwitches[i].coords - coords)
+                    
+                    -- ИСПРАВЛЕНИЕ: Радиус 50 метров
+                    if switchdist < 50 then
+                        Citizen.InvokeNative(0xE6C5E2125EB210C1, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
+                        Citizen.InvokeNative(0x3ABFA128F5BF5A70, Config.RouteTwoTrainSwitches[i].trainTrack, Config.RouteTwoTrainSwitches[i].junctionIndex, Config.RouteTwoTrainSwitches[i].enabled)
+                    end
+                end
+            end
+        end
+
+        -- Если поезд перестал существовать (удален или мигрировал к другому игроку), снимаем метку
+        activeSwitchThreads[netId] = nil
+    end)
 end)
 
 -------------------------------------------------------------------------------

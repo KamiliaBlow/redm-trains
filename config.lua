@@ -9,7 +9,7 @@ Config.Debug = false
 Config.RoutingBucket = 0
 Config.TrainSetup = {
 
-    -- trains
+    -- trains https://alloc8or.re/rdr3/doc/enums/eTrainConfig.txt
     {
         trainname = 'East Express',
         trainid = 'train1',
@@ -54,6 +54,8 @@ Config.RouteTwoTrainSwitches = {
     { coords = vector3(-2187.18, -2517.21, 65.7),       trainTrack = -988268728,  junctionIndex = 0,  enabled = 1 },
     { coords = vector3(-2214.62, -2519.47, 65.51),      trainTrack = -1763976500,  junctionIndex = 1,  enabled = 1 },
     { coords = vector3(-2214.62, -2519.47, 65.51),      trainTrack = -1467515357,  junctionIndex = 0,  enabled = 1 },
+	{ coords = vector3(-4916.636, -3008.723, -19.346),  trainTrack = -1467515357, junctionIndex = 0,  enabled = 1 },
+    { coords = vector3(-4848.854, -3086.51, -16.73606), trainTrack = -1763976500, junctionIndex = 1,  enabled = 1 },
 }
 
 -- train route one (via valentine)

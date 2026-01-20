@@ -119,30 +119,45 @@ RegisterNetEvent("Trains.Created", function(trainId, netId, trainsClientInfo)
         print('(Loop) Train migrated:', trainMigrated)
         
         local trainRecreationStarted = false
-        if trainMigrated then
-            while DoesEntityExist(handle) do
-                print('- Waiting for train deletion')
-                Wait(100) -- OPTIMIZATION: БЫЛО 0
-            end
-            
-            Trains[trainId] = nil
+        -- Блок миграции (ИСПРАВЛЕННЫЙ)
+    if trainMigrated then
+        while DoesEntityExist(handle) do
+            print('- Waiting for train deletion')
+            Wait(100)
+        end
+        
+        Trains[trainId] = nil
 
-            if DoesPlayerExist(newOwner) and GetPlayerRoutingBucket(newOwner) == Config.RoutingBucket then
-                spawnTrainOnPlayer(lastOwner, trainId, lastNormalCoords, getDirectionFromClosestSimulatedStop(Config.RouteOnePoints, lastNormalCoords))
-                print('- Re-spawning train on last owner')
+        -- Находим конфигурацию поезда, чтобы получить правильное направление из Config
+        local currentTrainConfig = nil
+        for k,v in ipairs(Config.TrainSetup) do
+            if v.trainid == trainId then
+                currentTrainConfig = v
+                break
+            end
+        end
+
+        -- Определяем направление:优先 берем из конфига, если нет - 0
+        local spawnDirection = (currentTrainConfig and currentTrainConfig.direction) or 0
+
+        if DoesPlayerExist(newOwner) and GetPlayerRoutingBucket(newOwner) == Config.RoutingBucket then
+            -- ИСПОЛЬЗУЕМ ФИКСИРОВАННОЕ НАПРАВЛЕНИЕ
+            spawnTrainOnPlayer(lastOwner, trainId, lastNormalCoords, spawnDirection)
+            print('- Re-spawning train on last owner')
+            trainRecreationStarted = true
+        else
+            local playerId = getSomePlayer()
+            if playerId then
+                -- ИСПОЛЬЗУЕМ ФИКСИРОВАННОЕ НАПРАВЛЕНИЕ
+                spawnTrainOnPlayer(playerId, trainId, lastNormalCoords, spawnDirection)
+                print('- Re-spawning train on new player')
                 trainRecreationStarted = true
             else
-                local playerId = getSomePlayer()
-                if playerId then
-                    spawnTrainOnPlayer(playerId, trainId, lastNormalCoords, getDirectionFromClosestSimulatedStop(Config.RouteOnePoints, lastNormalCoords))
-                    print('- Re-spawning train on new player')
-                    trainRecreationStarted = true
-                else
-                    print('- No other players found for recreation of train')
-                end
+                print('- No other players found for recreation of train')
             end
-            print('- Train recreation started', trainRecreationStarted)
         end
+        print('- Train recreation started', trainRecreationStarted)
+    end
 
         if not trainRecreationStarted then
             print('- Waiting for new players connecting to server')
